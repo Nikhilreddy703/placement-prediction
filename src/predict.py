@@ -1,66 +1,117 @@
-"""Predict placement for one student using the saved model.
-
-Usage:  python src/predict.py
-Or import:  from predict import predict_student
-"""
+"""Inference engine for individual and batch student placement predictions."""
 from pathlib import Path
+from typing import Any, Dict, Optional, Tuple, Union
 
 import joblib
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parent.parent
-MODEL_PATH = ROOT / "models" / "placement_model.joblib"
+from config import (
+    MODEL_FILE,
+    THRESHOLD_MODERATE_RISK,
+)
+from src.data import validate_student_record
+from src.explain import (
+    categorize_risk,
+    generate_coaching_recommendations,
+)
 
 
-def get_recommendations(details: dict, prob: float = None):
-    """Generate targeted placement cell advice and action items."""
-    recs = []
-    degree_p = float(details.get("degree_p", 0))
-    etest_p = float(details.get("etest_p", 0))
-    workex = str(details.get("workex", "No")).strip().lower()
-    mba_p = float(details.get("mba_p", 0))
-
-    if workex == "no":
-        recs.append("Practical Experience: Complete a 2-month summer internship or capstone industry project.")
-    if etest_p < 70:
-        recs.append("Aptitude Practice: Practice quantitative aptitude and logical reasoning daily for campus screening tests.")
-    if degree_p < 65:
-        recs.append("Technical Skills: Build strong portfolio projects (GitHub/live demos) to compensate for academic cutoff.")
-    if mba_p < 65:
-        recs.append("Domain Readiness: Prepare business case studies, financial modeling, or HR analytics certifications.")
-    if not recs:
-        recs.append("Profile Strong: Attend advanced mock technical interviews and focus on company-specific case questions.")
-    return recs
+def load_inference_pipeline(model_path: Optional[Union[str, Path]] = None):
+    """Load the trained and serialized sklearn pipeline."""
+    path = Path(model_path or MODEL_FILE)
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Trained model not found at {path}. Please run 'python src/train.py' first."
+        )
+    return joblib.load(path)
 
 
-def predict_student(details: dict):
-    """details: {column: value} using the same column names as the training data (without status/salary)."""
-    model = joblib.load(MODEL_PATH)
-    row = pd.DataFrame([details])
-    label = int(model.predict(row)[0])
-    prob = float(model.predict_proba(row)[0][1]) if hasattr(model, "predict_proba") else None
-    return label, prob
+def predict_student_placement(
+    profile: Union[Dict[str, Any], pd.DataFrame],
+    pipeline: Optional[Any] = None,
+    threshold: float = 0.50,
+) -> Dict[str, Any]:
+    """Predict placement outcome, probability, risk level, and recommendations.
+
+    Args:
+        profile: Dictionary or single-row DataFrame containing student details.
+        pipeline: Pre-loaded pipeline, or None to load default MODEL_FILE.
+        threshold: Decision threshold for classification (default 0.50).
+
+    Returns:
+        Dictionary with keys:
+          - 'label': 1 (Placed) or 0 (Not Placed)
+          - 'probability': float (0.0 to 1.0)
+          - 'risk_level': 'Low Risk', 'Moderate Risk', or 'High Risk'
+          - 'status_text': Human-readable summary
+          - 'recommendations': List of string action items
+    """
+    model = pipeline if pipeline is not None else load_inference_pipeline()
+    df_clean = validate_student_record(profile)
+
+    if hasattr(model, "predict_proba"):
+        prob = float(model.predict_proba(df_clean)[0][1])
+    else:
+        prob = 0.85 if int(model.predict(df_clean)[0]) == 1 else 0.35
+
+    label = 1 if prob >= threshold else 0
+    risk_level, status_text, color = categorize_risk(prob)
+    recs = generate_coaching_recommendations(profile if isinstance(profile, dict) else profile.iloc[0].to_dict(), prob, model)
+
+    return {
+        "label": label,
+        "probability": round(prob, 4),
+        "threshold": threshold,
+        "risk_level": risk_level,
+        "status_text": status_text,
+        "color": color,
+        "recommendations": recs,
+    }
+
+
+def batch_predict_students(
+    df: pd.DataFrame,
+    pipeline: Optional[Any] = None,
+    threshold: float = 0.50,
+) -> pd.DataFrame:
+    """Run inference over a DataFrame of students.
+
+    Returns the DataFrame augmented with:
+      - 'Predicted_Status' ('Placed' / 'Not Placed')
+      - 'Placement_Probability' (0.0 - 1.0)
+      - 'Risk_Level' ('Low Risk' / 'Moderate Risk' / 'High Risk')
+    """
+    model = pipeline if pipeline is not None else load_inference_pipeline()
+    df_clean = validate_student_record(df)
+
+    if hasattr(model, "predict_proba"):
+        probs = model.predict_proba(df_clean)[:, 1]
+    else:
+        probs = [0.85 if p == 1 else 0.35 for p in model.predict(df_clean)]
+
+    result = df.copy()
+    result["Placement_Probability"] = [round(float(p), 4) for p in probs]
+    result["Predicted_Status"] = [
+        "Placed" if p >= threshold else "Not Placed" for p in probs
+    ]
+    result["Risk_Level"] = [
+        categorize_risk(float(p))[0] for p in probs
+    ]
+    return result
 
 
 if __name__ == "__main__":
-    # Example student profile
-    student = {
-        "gender": "M", "ssc_p": 71.0, "ssc_b": "Central", "hsc_p": 68.0, "hsc_b": "Others",
-        "hsc_s": "Commerce", "degree_p": 69.0, "degree_t": "Comm&Mgmt", "workex": "Yes",
-        "etest_p": 78.0, "specialisation": "Mkt&Fin", "mba_p": 64.0,
-    }
-    label, prob = predict_student(student)
-    recs = get_recommendations(student, prob)
+    from config import PRESETS
 
-    print("=" * 50)
-    print("      STUDENT PLACEMENT PREDICTION RESULT")
-    print("=" * 50)
-    status_str = "PLACED (Low Risk) [OK]" if label == 1 else "NOT PLACED (At-Risk) [ATTENTION]"
-    print(f"Outcome Prediction : {status_str}")
-    if prob is not None:
-        print(f"Placement Likelihood: {prob:.1%}")
-    print("\nPlacement Cell Recommendations:")
-    for r in recs:
-        print(f" - {r}")
-    print("=" * 50)
-
+    sample = PRESETS["🌟 High-Scoring All-Rounder"]
+    print("=" * 60)
+    print("          STUDENT PLACEMENT PREDICTION ENGINE")
+    print("=" * 60)
+    out = predict_student_placement(sample)
+    print(f"Outcome         : {out['status_text']}")
+    print(f"Probability     : {out['probability']:.1%}")
+    print(f"Risk Category   : {out['risk_level']}")
+    print("\nActionable Recommendations:")
+    for rec in out["recommendations"]:
+        print(f"  • {rec}")
+    print("=" * 60)
