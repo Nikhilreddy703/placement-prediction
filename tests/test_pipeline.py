@@ -140,3 +140,23 @@ def test_pdf_report_generation():
     assert isinstance(pdf_bytes, bytes)
     assert len(pdf_bytes) > 1000
     assert pdf_bytes.startswith(b"%PDF")
+
+
+def test_shap_contributions():
+    """Verify SHAP calculations for tree-based pipeline."""
+    import joblib
+    from config import ALL_MODELS_FILE
+    from src.explain import compute_shap_contributions
+
+    if ALL_MODELS_FILE.exists():
+        models = joblib.load(ALL_MODELS_FILE)
+        rf = models.get("Random Forest")
+        if rf is not None:
+            sample = pd.DataFrame([PRESETS["🌟 High-Scoring All-Rounder"]])
+            clean = validate_student_record(sample)
+            df_shap = compute_shap_contributions(rf, clean)
+            assert not df_shap.empty
+            assert "Feature" in df_shap.columns
+            assert "SHAP_Value" in df_shap.columns
+            assert "Impact" in df_shap.columns
+

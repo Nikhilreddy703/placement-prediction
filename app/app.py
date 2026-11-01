@@ -44,6 +44,7 @@ from src.data import DataValidationError, load_dataset, validate_student_record
 from src.database import get_prediction_history, init_db, log_prediction
 from src.explain import (
     categorize_risk,
+    compute_shap_contributions,
     compute_student_feature_contributions,
     generate_coaching_recommendations,
     get_radar_comparison_data,
@@ -491,25 +492,59 @@ with tab1:
     exp_col1, exp_col2 = st.columns(2)
 
     with exp_col1:
-        st.markdown("#### Feature Influence vs. Cohort Average")
-        df_contrib = compute_student_feature_contributions(active_pipeline, pd.DataFrame([form_inputs]), dataset_df)
-        if not df_contrib.empty:
-            df_contrib["Color"] = df_contrib["Difference"].apply(lambda d: "#10B981" if d > 0 else "#EF4444")
-            fig_bar = px.bar(
-                df_contrib,
-                x="Difference",
-                y="Feature",
-                orientation="h",
-                color="Difference",
-                color_continuous_scale=["#EF4444", "#E2E8F0", "#10B981"],
-                title="Student Academic Delta vs. Cohort Average (%)",
-            )
-            fig_bar.update_layout(height=300, margin=dict(l=10, r=10, t=40, b=20), showlegend=False)
-            st.plotly_chart(fig_bar, use_container_width=True)
+        explain_mode = st.radio(
+            "Explainability Method:",
+            ["🌟 Individual SHAP Attributions", "📊 Cohort Academic Comparison"],
+            horizontal=True,
+        )
 
-            with st.expander("📝 View Detailed Attribute Insights"):
-                for _, row in df_contrib.iterrows():
-                    st.write(f"• **{FIELD_LABELS.get(row['Feature'], row['Feature'])}:** {row['Insight']}")
+        if explain_mode == "🌟 Individual SHAP Attributions":
+            # If current model has no tree explainer (e.g. KNN/SVM), use Random Forest pipeline for SHAP
+            shap_model = active_pipeline
+            if selected_model_name in ["KNN", "SVM"] and "Random Forest" in all_models:
+                shap_model = all_models["Random Forest"]
+                st.caption(f"*(SHAP computed using tuned Random Forest model since {selected_model_name} uses non-tree kernels)*")
+
+            df_shap = compute_shap_contributions(shap_model, pd.DataFrame([form_inputs]))
+            if not df_shap.empty:
+                df_shap["Direction"] = df_shap["SHAP_Value"].apply(lambda v: "Positive (+)" if v > 0 else "Negative (-)")
+                fig_shap = px.bar(
+                    df_shap,
+                    x="SHAP_Value",
+                    y="Feature",
+                    orientation="h",
+                    color="SHAP_Value",
+                    color_continuous_scale=["#EF4444", "#E2E8F0", "#10B981"],
+                    title="SHAP Feature Attributions on Placement Odds",
+                )
+                fig_shap.update_layout(height=320, margin=dict(l=10, r=10, t=40, b=20), showlegend=False)
+                st.plotly_chart(fig_shap, use_container_width=True)
+
+                with st.expander("📝 View Plain English SHAP Insights"):
+                    for _, s_row in df_shap.iterrows():
+                        st.write(f"• **{s_row['Feature']}:** {s_row['Plain_English_Insight']}")
+            else:
+                explain_mode = "📊 Cohort Academic Comparison"
+
+        if explain_mode == "📊 Cohort Academic Comparison":
+            df_contrib = compute_student_feature_contributions(active_pipeline, pd.DataFrame([form_inputs]), dataset_df)
+            if not df_contrib.empty:
+                df_contrib["Color"] = df_contrib["Difference"].apply(lambda d: "#10B981" if d > 0 else "#EF4444")
+                fig_bar = px.bar(
+                    df_contrib,
+                    x="Difference",
+                    y="Feature",
+                    orientation="h",
+                    color="Difference",
+                    color_continuous_scale=["#EF4444", "#E2E8F0", "#10B981"],
+                    title="Student Academic Delta vs. Cohort Average (%)",
+                )
+                fig_bar.update_layout(height=320, margin=dict(l=10, r=10, t=40, b=20), showlegend=False)
+                st.plotly_chart(fig_bar, use_container_width=True)
+
+                with st.expander("📝 View Detailed Attribute Insights"):
+                    for _, row in df_contrib.iterrows():
+                        st.write(f"• **{FIELD_LABELS.get(row['Feature'], row['Feature'])}:** {row['Insight']}")
 
     with exp_col2:
         st.markdown("#### Student vs. Average Placed Student (Radar Chart)")

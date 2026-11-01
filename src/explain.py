@@ -89,6 +89,78 @@ def generate_coaching_recommendations(
     return recs
 
 
+def compute_shap_contributions(
+    pipeline: Any,
+    student_df: pd.DataFrame,
+    top_n: int = 8,
+) -> pd.DataFrame:
+    """Compute true individual SHAP values for the student's prediction.
+
+    Works for Tree models (Random Forest, XGBoost, Gradient Boosting).
+    Returns a sorted DataFrame with [Feature, SHAP_Value, Impact, Plain_English_Insight]
+    """
+    try:
+        import shap
+
+        estimator = pipeline.estimator if hasattr(pipeline, "estimator") else pipeline
+        pre = estimator.named_steps.get("pre")
+        clf = estimator.named_steps.get("clf")
+
+        if pre is None or clf is None:
+            return pd.DataFrame()
+
+        # Check if clf is supported by TreeExplainer
+        if not hasattr(clf, "feature_importances_"):
+            return pd.DataFrame()
+
+        feature_names = [
+            n.replace("num__", "").replace("cat__", "")
+            for n in pre.get_feature_names_out()
+        ]
+        X_trans = pre.transform(student_df)
+        explainer = shap.TreeExplainer(clf)
+        explanation = explainer(X_trans)
+        raw_vals = explanation.values
+
+        # If shape is (1, n_features, 2), slice positive class (Placed)
+        if len(raw_vals.shape) == 3 and raw_vals.shape[2] == 2:
+            shap_scores = raw_vals[0, :, 1]
+        elif len(raw_vals.shape) == 2:
+            shap_scores = raw_vals[0, :]
+        else:
+            shap_scores = raw_vals.flatten()[:len(feature_names)]
+
+        df_shap = pd.DataFrame({
+            "Feature": feature_names,
+            "SHAP_Value": shap_scores,
+        })
+        df_shap["Abs_SHAP"] = df_shap["SHAP_Value"].abs()
+        df_shap = df_shap.sort_values(by="Abs_SHAP", ascending=False).head(top_n).copy()
+
+        insights = []
+        impacts = []
+        for _, row in df_shap.iterrows():
+            feat = row["Feature"]
+            val = row["SHAP_Value"]
+            if val > 0.005:
+                impact = "Boosts Placement Probability (+)"
+                insight = f"This attribute strongly pushed the student's probability UP by +{val:.3f} log-odds."
+            elif val < -0.005:
+                impact = "Lowers Placement Probability (-)"
+                insight = f"This attribute pulled the student's probability DOWN by {val:.3f} log-odds."
+            else:
+                impact = "Neutral Impact (~)"
+                insight = "Minimal impact on final prediction."
+            insights.append(insight)
+            impacts.append(impact)
+
+        df_shap["Impact"] = impacts
+        df_shap["Plain_English_Insight"] = insights
+        return df_shap.drop(columns=["Abs_SHAP"]).reset_index(drop=True)
+    except Exception:
+        return pd.DataFrame()
+
+
 def compute_student_feature_contributions(
     pipeline: Any,
     student_df: pd.DataFrame,
