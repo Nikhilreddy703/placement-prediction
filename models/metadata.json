@@ -1,0 +1,111 @@
+{
+  "best_model": "KNN",
+  "metrics": {
+    "Accuracy": 0.6875,
+    "Precision": 0.7164179104477612,
+    "Recall": 0.8888888888888888,
+    "F1": 0.7933884297520661,
+    "CV F1": 0.7995581226002912
+  },
+  "all_models": [
+    {
+      "Model": "KNN",
+      "Accuracy": 0.6875,
+      "Precision": 0.7164,
+      "Recall": 0.8889,
+      "F1": 0.7934,
+      "CV F1": 0.7996
+    },
+    {
+      "Model": "Random Forest",
+      "Accuracy": 0.6875,
+      "Precision": 0.7458,
+      "Recall": 0.8148,
+      "F1": 0.7788,
+      "CV F1": 0.7957
+    },
+    {
+      "Model": "Logistic Regression",
+      "Accuracy": 0.7375,
+      "Precision": 0.8,
+      "Recall": 0.8148,
+      "F1": 0.8073,
+      "CV F1": 0.7674
+    },
+    {
+      "Model": "SVM",
+      "Accuracy": 0.7,
+      "Precision": 0.7885,
+      "Recall": 0.7593,
+      "F1": 0.7736,
+      "CV F1": 0.7506
+    },
+    {
+      "Model": "Decision Tree",
+      "Accuracy": 0.675,
+      "Precision": 0.7917,
+      "Recall": 0.7037,
+      "F1": 0.7451,
+      "CV F1": 0.6835
+    }
+  ],
+  "numeric": {
+    "ssc_p": [
+      40.0,
+      92.98,
+      66.87
+    ],
+    "hsc_p": [
+      40.0,
+      94.09,
+      66.25
+    ],
+    "degree_p": [
+      50.0,
+      86.0,
+      66.64500000000001
+    ],
+    "etest_p": [
+      50.0,
+      98.0,
+      72.19999999999999
+    ],
+    "mba_p": [
+      51.0,
+      78.0,
+      61.885000000000005
+    ]
+  },
+  "categorical": {
+    "gender": [
+      "F",
+      "M"
+    ],
+    "ssc_b": [
+      "Central",
+      "Others"
+    ],
+    "hsc_b": [
+      "Central",
+      "Others"
+    ],
+    "hsc_s": [
+      "Arts",
+      "Commerce",
+      "Science"
+    ],
+    "degree_t": [
+      "Comm&Mgmt",
+      "Others",
+      "Sci&Tech"
+    ],
+    "workex": [
+      "No",
+      "Yes"
+    ],
+    "specialisation": [
+      "Mkt&Fin",
+      "Mkt&HR"
+    ]
+  }
+}
