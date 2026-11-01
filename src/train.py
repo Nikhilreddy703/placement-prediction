@@ -246,6 +246,8 @@ def train_and_benchmark(data_path: Path = None):
     if df_imp is not None:
         plot_feature_importance(tree_or_linear, FIGURES_DIR / "feature_importance.png")
         df_imp.round(4).to_csv(FEATURE_IMP_FILE, index=False)
+    elif FEATURE_IMP_FILE.exists():
+        df_imp = pd.read_csv(FEATURE_IMP_FILE)
 
     # Benchmark statistics for radar chart
     placed_mask = (y == 1)

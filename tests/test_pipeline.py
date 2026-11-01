@@ -1,12 +1,29 @@
-"""Unit test suite for placement prediction data, features, and inference."""
-import pytest
-import pandas as pd
+"""Comprehensive unit test suite for placement prediction data, features, and inference."""
+import io
+import os
+import sqlite3
+import tempfile
 import numpy as np
+import pandas as pd
+import pytest
 
-from config import DROP_COLS, NUMERIC_FEATURES, CATEGORICAL_FEATURES, PRESETS
-from src.data import load_dataset, validate_student_record, DataValidationError
+from config import CATEGORICAL_FEATURES, DROP_COLS, NUMERIC_FEATURES, PRESETS
+from src.data import DataValidationError, load_dataset, validate_student_record
+from src.database import get_prediction_history, init_db, log_prediction
+from src.explain import (
+    categorize_risk,
+    compute_student_feature_contributions,
+    generate_coaching_recommendations,
+    get_radar_comparison_data,
+    simulate_what_if,
+)
 from src.features import build_preprocessor
-from src.predict import predict_student_placement, load_inference_pipeline
+from src.predict import (
+    batch_predict_students,
+    load_inference_pipeline,
+    predict_student_placement,
+)
+from src.report_generator import generate_student_pdf_report
 
 
 def test_load_dataset_drops_leakage():
@@ -56,7 +73,7 @@ def test_build_preprocessor_shape():
     pre = build_preprocessor()
     transformed = pre.fit_transform(X)
     assert transformed.shape[0] == len(X)
-    assert transformed.shape[1] > len(NUMERIC_FEATURES)  # One-hot encoded columns added
+    assert transformed.shape[1] > len(NUMERIC_FEATURES)
 
 
 def test_prediction_output_schema():
@@ -72,3 +89,54 @@ def test_prediction_output_schema():
     assert 0.0 <= result["probability"] <= 1.0
     assert result["risk_level"] in ["Low Risk", "Moderate Risk", "High Risk"]
 
+
+def test_batch_prediction():
+    """Verify batch inference produces predicted status, probability, and risk level."""
+    pipeline = load_inference_pipeline()
+    sample_batch = pd.DataFrame([
+        PRESETS["🌟 High-Scoring All-Rounder"],
+        PRESETS["⚠️ At-Risk Student (Needs Support)"],
+    ])
+    scored = batch_predict_students(sample_batch, pipeline)
+    assert len(scored) == 2
+    assert "Predicted_Status" in scored.columns
+    assert "Placement_Probability" in scored.columns
+    assert "Risk_Level" in scored.columns
+    assert scored["Predicted_Status"].iloc[0] == "Placed"
+
+
+def test_what_if_simulator():
+    """Verify that improving E-test score and adding workex improves placement probability."""
+    pipeline = load_inference_pipeline()
+    base = PRESETS["⚠️ At-Risk Student (Needs Support)"]
+    sim = simulate_what_if(pipeline, base, {"etest_p": 95.0, "workex": "Yes"})
+    assert "base_probability" in sim
+    assert "simulated_probability" in sim
+    assert "delta" in sim
+    assert sim["simulated_probability"] > sim["base_probability"]
+
+
+def test_database_logging(tmp_path):
+    """Verify SQLite logging and retrieval."""
+    test_db = tmp_path / "test_history.db"
+    init_db(test_db)
+
+    profile = PRESETS["🌟 High-Scoring All-Rounder"]
+    res = {"status_text": "Placed", "probability": 0.85, "risk_level": "Low Risk"}
+    row_id = log_prediction(profile, res, "KNN", identifier="TestStudent", db_path=test_db)
+    assert row_id == 1
+
+    df_hist = get_prediction_history(limit=10, db_path=test_db)
+    assert len(df_hist) == 1
+    assert df_hist["student_identifier"].iloc[0] == "TestStudent"
+    assert df_hist["probability"].iloc[0] == 0.85
+
+
+def test_pdf_report_generation():
+    """Verify that PDF generation produces valid non-empty PDF bytes."""
+    sample = PRESETS["🌟 High-Scoring All-Rounder"]
+    res = predict_student_placement(sample)
+    pdf_bytes = generate_student_pdf_report(sample, res, model_name="KNN")
+    assert isinstance(pdf_bytes, bytes)
+    assert len(pdf_bytes) > 1000
+    assert pdf_bytes.startswith(b"%PDF")
