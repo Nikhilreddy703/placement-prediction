@@ -1,5 +1,11 @@
 """Explainability, student coaching recommendations, and what-if analysis."""
+import sys
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 import numpy as np
 import pandas as pd
@@ -167,3 +173,4 @@ def get_radar_comparison_data(
         "Placed Benchmark": bench_scores,
     })
     return df
+

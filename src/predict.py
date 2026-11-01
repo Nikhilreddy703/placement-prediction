@@ -1,6 +1,11 @@
 """Inference engine for individual and batch student placement predictions."""
+import sys
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Union
+
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 import joblib
 import pandas as pd

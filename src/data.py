@@ -1,6 +1,11 @@
 """Data loading, cleaning, validation, and leakage removal."""
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
+
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 import numpy as np
 import pandas as pd
@@ -140,3 +145,4 @@ def load_dataset(
             pass
 
     return X, y
+

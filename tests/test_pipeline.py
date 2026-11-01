@@ -71,3 +71,4 @@ def test_prediction_output_schema():
     assert "recommendations" in result
     assert 0.0 <= result["probability"] <= 1.0
     assert result["risk_level"] in ["Low Risk", "Moderate Risk", "High Risk"]
+

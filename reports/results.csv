@@ -1,6 +1,7 @@
-Model,Accuracy,Precision,Recall,F1,CV F1
-KNN,0.6875,0.7164,0.8889,0.7934,0.7996
-Random Forest,0.6875,0.7458,0.8148,0.7788,0.7957
-Logistic Regression,0.7375,0.8,0.8148,0.8073,0.7674
-SVM,0.7,0.7885,0.7593,0.7736,0.7506
-Decision Tree,0.675,0.7917,0.7037,0.7451,0.6835
+Model,Accuracy,Precision,Recall,F1,ROC-AUC,CV F1,Best Params
+KNN,0.7,0.7143,0.9259,0.8065,0.6531,0.8065,"{'clf__n_neighbors': 5, 'clf__weights': 'distance'}"
+Random Forest,0.75,0.75,0.9444,0.8361,0.683,0.7957,"{'clf__max_depth': 6, 'clf__min_samples_split': 2, 'clf__n_estimators': 200}"
+XGBoost,0.7375,0.7463,0.9259,0.8264,0.6781,0.7878,"{'clf__learning_rate': 0.05, 'clf__max_depth': 4, 'clf__n_estimators': 100}"
+Logistic Regression,0.725,0.7667,0.8519,0.807,0.745,0.7816,{'clf__C': 0.1}
+Gradient Boosting,0.75,0.7429,0.963,0.8387,0.6766,0.7792,"{'clf__learning_rate': 0.05, 'clf__max_depth': 3, 'clf__n_estimators': 100}"
+SVM,0.7625,0.7778,0.9074,0.8376,0.7457,0.7554,"{'clf__C': 1.0, 'clf__kernel': 'linear'}"

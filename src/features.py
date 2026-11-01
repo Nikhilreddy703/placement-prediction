@@ -1,5 +1,11 @@
 """Feature transformation pipeline construction and schema utilities."""
+import sys
+from pathlib import Path
 from typing import List, Optional
+
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
@@ -45,3 +51,4 @@ def get_feature_names(preprocessor: ColumnTransformer) -> List[str]:
     except Exception:
         # Fallback if preprocessor hasn't been fitted
         return NUMERIC_FEATURES + CATEGORICAL_FEATURES
+
