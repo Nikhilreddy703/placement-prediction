@@ -17,3 +17,4 @@ if __name__ == "__main__":
 else:
     app_path = BASE_DIR / "app" / "app.py"
     runpy.run_path(str(app_path), run_name="__main__")
+

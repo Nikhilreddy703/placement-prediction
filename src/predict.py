@@ -118,5 +118,6 @@ if __name__ == "__main__":
     print(f"Risk Category   : {out['risk_level']}")
     print("\nActionable Recommendations:")
     for rec in out["recommendations"]:
-        print(f"  • {rec}")
+        clean_rec = rec.encode("ascii", errors="replace").decode("ascii")
+        print(f"  - {clean_rec}")
     print("=" * 60)

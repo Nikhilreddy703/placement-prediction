@@ -100,3 +100,4 @@ def clear_prediction_history(db_path=None) -> None:
     with sqlite3.connect(path) as conn:
         conn.cursor().execute("DELETE FROM prediction_history")
         conn.commit()
+
