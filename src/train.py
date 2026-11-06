@@ -17,6 +17,7 @@ from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     accuracy_score,
+    balanced_accuracy_score,
     classification_report,
     confusion_matrix,
     f1_score,
@@ -24,7 +25,13 @@ from sklearn.metrics import (
     recall_score,
     roc_auc_score,
 )
-from sklearn.model_selection import GridSearchCV, StratifiedKFold, cross_val_score, train_test_split
+from sklearn.model_selection import (
+    GridSearchCV,
+    StratifiedKFold,
+    cross_val_predict,
+    cross_val_score,
+    train_test_split,
+)
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.svm import SVC
@@ -56,18 +63,18 @@ from src.features import build_preprocessor
 def get_model_candidates() -> Dict[str, Tuple[object, dict]]:
     """Define classification algorithms and their hyperparameter search grids."""
     return {
+        "Logistic Regression": (
+            LogisticRegression(max_iter=1000, class_weight="balanced", random_state=RANDOM_SEED),
+            {
+                "clf__C": [0.1, 0.5, 1.0, 5.0],
+            },
+        ),
         "Random Forest": (
             RandomForestClassifier(class_weight="balanced", random_state=RANDOM_SEED),
             {
                 "clf__n_estimators": [100, 200],
                 "clf__max_depth": [4, 6],
                 "clf__min_samples_split": [2, 5],
-            },
-        ),
-        "Logistic Regression": (
-            LogisticRegression(max_iter=1000, class_weight="balanced", random_state=RANDOM_SEED),
-            {
-                "clf__C": [0.1, 1.0, 5.0],
             },
         ),
         "Gradient Boosting": (
@@ -84,6 +91,7 @@ def get_model_candidates() -> Dict[str, Tuple[object, dict]]:
                 "clf__n_estimators": [100, 150],
                 "clf__max_depth": [3, 4],
                 "clf__learning_rate": [0.05, 0.1],
+                "clf__scale_pos_weight": [0.48, 1.0],
             },
         ),
         "KNN": (
@@ -103,17 +111,22 @@ def get_model_candidates() -> Dict[str, Tuple[object, dict]]:
     }
 
 
-def find_optimal_threshold(y_true, y_probs) -> Tuple[float, float]:
-    """Find the classification decision threshold that maximizes the F1-score."""
+def find_optimal_threshold(y_true, y_probs, metric: str = "balanced_accuracy") -> Tuple[float, float]:
+    """Find the classification decision threshold that maximizes balanced accuracy."""
     best_thresh = 0.50
-    best_f1 = 0.0
-    for t in np.linspace(0.30, 0.70, 41):
+    best_score = 0.0
+    for t in np.linspace(0.35, 0.70, 36):
         preds = (y_probs >= t).astype(int)
-        score = f1_score(y_true, preds, zero_division=0)
-        if score > best_f1:
-            best_f1 = score
+        if metric == "balanced_accuracy":
+            score = balanced_accuracy_score(y_true, preds)
+        elif metric == "f1_macro":
+            score = f1_score(y_true, preds, average="macro", zero_division=0)
+        else:
+            score = f1_score(y_true, preds, zero_division=0)
+        if score > best_score:
+            best_score = score
             best_thresh = round(float(t), 2)
-    return best_thresh, best_f1
+    return best_thresh, round(float(best_score), 4)
 
 
 def train_and_benchmark(data_path: Path = None):
@@ -146,18 +159,19 @@ def train_and_benchmark(data_path: Path = None):
             ("clf", base_clf),
         ])
 
-        # Grid search tuning for optimal hyperparameters
+        # Grid search tuning optimizing for balanced accuracy
         grid = GridSearchCV(
             raw_pipe,
             param_grid=param_grid,
             cv=cv,
-            scoring="f1",
+            scoring="balanced_accuracy",
             n_jobs=-1,
         )
         grid.fit(X_train, y_train)
         best_pipe = grid.best_estimator_
 
-        # 5-fold CV score on training data
+        # 5-fold CV scores on training data
+        cv_bal = cross_val_score(best_pipe, X_train, y_train, cv=cv, scoring="balanced_accuracy").mean()
         cv_f1 = cross_val_score(best_pipe, X_train, y_train, cv=cv, scoring="f1").mean()
 
         # Calibrate probabilities for reliable risk scoring
@@ -166,6 +180,7 @@ def train_and_benchmark(data_path: Path = None):
             calibrated_pipe.fit(X_train, y_train)
             final_pipe = calibrated_pipe
             probs = final_pipe.predict_proba(X_test)[:, 1]
+            oof_probs = cross_val_predict(calibrated_pipe, X_train, y_train, cv=cv, method="predict_proba")[:, 1]
         except Exception:
             final_pipe = best_pipe
             probs = (
@@ -173,23 +188,35 @@ def train_and_benchmark(data_path: Path = None):
                 if hasattr(final_pipe, "predict_proba")
                 else (final_pipe.predict(X_test) * 0.8 + 0.1)
             )
+            oof_probs = cross_val_predict(best_pipe, X_train, y_train, cv=cv, method="predict_proba")[:, 1]
 
-        test_pred = (probs >= 0.50).astype(int)
+        # Tune threshold on training cross-validation out-of-fold probabilities
+        model_opt_thresh, cv_opt_bal = find_optimal_threshold(y_train, oof_probs, metric="balanced_accuracy")
+        test_pred = (probs >= model_opt_thresh).astype(int)
 
         acc = accuracy_score(y_test, test_pred)
+        bal_acc = balanced_accuracy_score(y_test, test_pred)
+        macro_f1 = f1_score(y_test, test_pred, average="macro", zero_division=0)
         prec = precision_score(y_test, test_pred, zero_division=0)
         rec = recall_score(y_test, test_pred, zero_division=0)
         f1 = f1_score(y_test, test_pred, zero_division=0)
+        at_risk_rec = recall_score(y_test, test_pred, pos_label=0, zero_division=0)
         roc_auc = roc_auc_score(y_test, probs)
 
         rows.append({
             "Model": name,
             "Accuracy": round(acc, 4),
+            "Balanced Acc": round(bal_acc, 4),
+            "Macro F1": round(macro_f1, 4),
+            "At-Risk Recall": round(at_risk_rec, 4),
+            "Placed Recall": round(rec, 4),
             "Precision": round(prec, 4),
             "Recall": round(rec, 4),
             "F1": round(f1, 4),
             "ROC-AUC": round(roc_auc, 4),
+            "CV BalAcc": round(cv_bal, 4),
             "CV F1": round(cv_f1, 4),
+            "Optimal Threshold": model_opt_thresh,
             "Best Params": str(grid.best_params_),
         })
 
@@ -200,22 +227,23 @@ def train_and_benchmark(data_path: Path = None):
             "preds": test_pred,
         }
 
-    # Rank models by cross-validated F1 score
-    results_df = pd.DataFrame(rows).sort_values("CV F1", ascending=False).reset_index(drop=True)
+    # Rank models by cross-validated Balanced Accuracy
+    results_df = pd.DataFrame(rows).sort_values("CV BalAcc", ascending=False).reset_index(drop=True)
     print("\n" + "=" * 65)
     print("                MODEL BENCHMARK RESULTS")
     print("=" * 65)
-    print(results_df[["Model", "Accuracy", "Precision", "Recall", "F1", "ROC-AUC", "CV F1"]].to_string(index=False))
+    print(results_df[["Model", "Accuracy", "Balanced Acc", "Macro F1", "At-Risk Recall", "Placed Recall", "ROC-AUC", "CV BalAcc", "Optimal Threshold"]].to_string(index=False))
 
     best_model_name = results_df.loc[0, "Model"]
     best_pack = fitted_pipelines[best_model_name]
     best_pipe = best_pack["pipeline"]
     best_probs = best_pack["probs"]
+    opt_thresh = float(results_df.loc[0, "Optimal Threshold"])
 
-    # Threshold optimization for best model
-    opt_thresh, opt_f1 = find_optimal_threshold(y_test, best_probs)
     print(f"\n[BEST MODEL] Champion Model: {best_model_name}")
-    print(f"Optimal Decision Threshold: {opt_thresh:.2f} (Yields Test F1: {opt_f1:.4f})")
+    print(f"Optimal Decision Threshold: {opt_thresh:.2f}")
+    print("\nDetailed Test Classification Report:")
+    print(classification_report(y_test, (best_probs >= opt_thresh).astype(int), target_names=["Not placed", "Placed"]))
     print("\nDetailed Test Classification Report:")
     print(classification_report(y_test, (best_probs >= opt_thresh).astype(int), target_names=["Not placed", "Placed"]))
 
@@ -281,15 +309,18 @@ def train_and_benchmark(data_path: Path = None):
         "",
         "## 1. Benchmarking Overview across 6 Algorithms",
         "",
-        results_df[["Model", "Accuracy", "Precision", "Recall", "F1", "ROC-AUC", "CV F1"]].to_markdown(index=False),
+        results_df[["Model", "Accuracy", "Balanced Acc", "Macro F1", "At-Risk Recall", "Placed Recall", "ROC-AUC", "CV BalAcc", "Optimal Threshold"]].to_markdown(index=False),
         "",
         f"## 2. Champion Model Selected: **{best_model_name}**",
-        "- **Selection Criterion:** Highest 5-Fold Stratified Cross-Validation F1 score on training data.",
-        f"- **Optimal Decision Threshold:** `{opt_thresh:.2f}` (Standard: `0.50`)",
+        "- **Selection Criterion:** Highest 5-Fold Stratified Cross-Validation Balanced Accuracy on training data (addressing class imbalance).",
+        f"- **Optimal Decision Threshold:** `{opt_thresh:.2f}` (Tuned on CV out-of-fold probability distribution)",
         f"- **Test Accuracy:** `{results_df.loc[0, 'Accuracy']:.1%}`",
-        f"- **Test F1-Score:** `{results_df.loc[0, 'F1']:.4f}`",
+        f"- **Test Balanced Accuracy:** `{results_df.loc[0, 'Balanced Acc']:.1%}`",
+        f"- **Test Macro F1:** `{results_df.loc[0, 'Macro F1']:.4f}`",
+        f"- **At-Risk Student Recall:** `{results_df.loc[0, 'At-Risk Recall']:.1%}`",
+        f"- **Placed Student Recall:** `{results_df.loc[0, 'Placed Recall']:.1%}`",
         f"- **ROC-AUC:** `{results_df.loc[0, 'ROC-AUC']:.4f}`",
-        f"- **5-Fold CV F1:** `{results_df.loc[0, 'CV F1']:.4f}`",
+        f"- **5-Fold CV Balanced Accuracy:** `{results_df.loc[0, 'CV BalAcc']:.4f}`",
         "",
         "## 3. Top Influencing Factors (Feature Importance)",
         "",

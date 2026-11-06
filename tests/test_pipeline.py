@@ -21,6 +21,7 @@ from src.features import build_preprocessor
 from src.predict import (
     batch_predict_students,
     load_inference_pipeline,
+    predict_student,
     predict_student_placement,
 )
 from src.report_generator import generate_student_pdf_report
@@ -159,4 +160,31 @@ def test_shap_contributions():
             assert "Feature" in df_shap.columns
             assert "SHAP_Value" in df_shap.columns
             assert "Impact" in df_shap.columns
+
+
+def test_predict_student_backward_compatibility():
+    """Verify legacy predict_student returns (label, probability) tuple."""
+    sample = PRESETS["🌟 High-Scoring All-Rounder"]
+    label, prob = predict_student(sample)
+    assert label in [0, 1]
+    assert isinstance(prob, float)
+    assert 0.0 <= prob <= 1.0
+
+
+def test_prediction_accepts_numpy_array():
+    """Verify inference pipeline accepts NumPy arrays without raising ColumnTransformer string errors."""
+    # Ordered according to config.ALL_FEATURE_COLS (5 numeric, 7 categorical)
+    raw_array = np.array([[78.0, 75.0, 72.0, 70.0, 68.0, "M", "Central", "Others", "Commerce", "Comm&Mgmt", "Yes", "Mkt&Fin"]], dtype=object)
+    
+    # Test predict_student_placement
+    result = predict_student_placement(raw_array)
+    assert "label" in result
+    assert result["label"] in [0, 1]
+    assert 0.0 <= result["probability"] <= 1.0
+
+    # Test legacy predict_student
+    lbl, pr = predict_student(raw_array)
+    assert lbl in [0, 1]
+    assert 0.0 <= pr <= 1.0
+
 

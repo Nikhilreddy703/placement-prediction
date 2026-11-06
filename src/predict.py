@@ -31,15 +31,33 @@ def load_inference_pipeline(model_path: Optional[Union[str, Path]] = None):
     return joblib.load(path)
 
 
+def predict_student(
+    details: Union[Dict[str, Any], pd.DataFrame, Any],
+    model_path: Optional[Union[str, Path]] = None,
+) -> Tuple[int, Optional[float]]:
+    """Backward-compatible inference function for a single student profile.
+
+    Args:
+        details: Dictionary, DataFrame, or NumPy array containing student details.
+        model_path: Optional path to serialized model pipeline.
+
+    Returns:
+        Tuple of (label: int, probability: Optional[float]).
+    """
+    model = load_inference_pipeline(model_path)
+    res = predict_student_placement(details, pipeline=model)
+    return int(res["label"]), float(res["probability"]) if res.get("probability") is not None else None
+
+
 def predict_student_placement(
-    profile: Union[Dict[str, Any], pd.DataFrame],
+    profile: Union[Dict[str, Any], pd.DataFrame, Any],
     pipeline: Optional[Any] = None,
     threshold: float = 0.50,
 ) -> Dict[str, Any]:
     """Predict placement outcome, probability, risk level, and recommendations.
 
     Args:
-        profile: Dictionary or single-row DataFrame containing student details.
+        profile: Dictionary, single-row DataFrame, or NumPy array containing student details.
         pipeline: Pre-loaded pipeline, or None to load default MODEL_FILE.
         threshold: Decision threshold for classification (default 0.50).
 
@@ -61,7 +79,7 @@ def predict_student_placement(
 
     label = 1 if prob >= threshold else 0
     risk_level, status_text, color = categorize_risk(prob)
-    recs = generate_coaching_recommendations(profile if isinstance(profile, dict) else profile.iloc[0].to_dict(), prob, model)
+    recs = generate_coaching_recommendations(df_clean.iloc[0].to_dict(), prob, model)
 
     return {
         "label": label,

@@ -28,17 +28,35 @@ class DataValidationError(ValueError):
     pass
 
 
-def validate_student_record(data: Union[Dict, pd.DataFrame]) -> pd.DataFrame:
-    """Validate a single student profile or DataFrame against expected schema and bounds.
+def validate_student_record(data: Union[Dict, pd.DataFrame, np.ndarray, List]) -> pd.DataFrame:
+    """Validate a single student profile, DataFrame, or array against expected schema and bounds.
 
-    Returns sanitized single-row or multi-row DataFrame ready for pipeline input.
+    Returns sanitized single-row or multi-row DataFrame ready for pipeline input with exact column names and dtypes.
     """
     if isinstance(data, dict):
         df = pd.DataFrame([data])
     elif isinstance(data, pd.DataFrame):
         df = data.copy()
+    elif isinstance(data, np.ndarray):
+        arr = data if data.ndim == 2 else data.reshape(1, -1)
+        if arr.shape[1] != len(ALL_FEATURE_COLS):
+            raise DataValidationError(
+                f"NumPy array has {arr.shape[1]} columns, expected {len(ALL_FEATURE_COLS)} ({ALL_FEATURE_COLS})"
+            )
+        df = pd.DataFrame(arr, columns=ALL_FEATURE_COLS)
+    elif isinstance(data, list):
+        if len(data) > 0 and isinstance(data[0], dict):
+            df = pd.DataFrame(data)
+        else:
+            arr = np.array(data)
+            arr = arr if arr.ndim == 2 else arr.reshape(1, -1)
+            if arr.shape[1] != len(ALL_FEATURE_COLS):
+                raise DataValidationError(
+                    f"List input has {arr.shape[1]} columns, expected {len(ALL_FEATURE_COLS)} ({ALL_FEATURE_COLS})"
+                )
+            df = pd.DataFrame(arr, columns=ALL_FEATURE_COLS)
     else:
-        raise DataValidationError(f"Expected dict or DataFrame, received {type(data)}")
+        raise DataValidationError(f"Expected dict, DataFrame, or array-like, received {type(data)}")
 
     # Check for missing required feature columns
     missing = [col for col in ALL_FEATURE_COLS if col not in df.columns]
