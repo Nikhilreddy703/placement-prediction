@@ -48,3 +48,4 @@ plt.tight_layout()
 plt.savefig(out_dir / 'counterfactual_recourse.png', dpi=200, bbox_inches='tight')
 plt.close()
 print('Recourse diagram saved successfully!')
+
